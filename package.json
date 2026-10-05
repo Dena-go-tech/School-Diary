@@ -1,0 +1,23 @@
+{
+  "name": "school-diary",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Дневник: расписание по датам и домашние задания",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "db": "docker compose up -d db"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "vite": "^8.3.2"
+  }
+}

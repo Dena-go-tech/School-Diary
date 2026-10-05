@@ -1,0 +1,43 @@
+services:
+  db:
+    container_name: diary_db
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: 
+      - .env
+    volumes:
+      - ./postgresql_data/:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "80:3000"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/state >/dev/null || exit 1" ]
+      interval: 30s
+      timeout: 3s
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Cloudflare Tunnel: публикует сайт в интернет без открытых портов на роутере.
+  # В панели Cloudflare у туннеля Public Hostname → Service: http://app:3000
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      app:
+        condition: service_healthy
