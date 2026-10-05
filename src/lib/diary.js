@@ -3,9 +3,12 @@
  *  versions: [{ effectiveFrom: 'YYYY-MM-DD', bells: [{start, end}], days: { 1..7: [subjectId|null] } }]
  *            — версии расписания, привязанные к дате. Для дня берётся последняя версия
  *              с effectiveFrom <= дата, поэтому прошлые недели не меняются.
- *  homework: [{ id, subjectId, fromDate, fromIdx, text, done, createdAt }]
+ *  homework: [{ id, subjectId, fromDate, fromIdx, text, done, createdAt, photos, status, createdBy, authorName }]
  *            — ДЗ, заданное на уроке (fromDate, fromIdx). На какой урок оно попадает,
  *              вычисляется: следующий урок того же предмета после fromDate.
+ *              status: 'approved' — видно всем (одно на урок), 'pending' — запрос ученика на проверке.
+ *              done — личная отметка текущего пользователя.
+ *  me: { id, name, role: 'admin' | 'student' }
  */
 import { addDays, todayStr, weekday } from './dates.js';
 
@@ -23,6 +26,7 @@ export const uid = (p) => p + Date.now().toString(36) + Math.random().toString(3
 
 export function normalizeState(s) {
   return {
+    me: s?.me || null,
     subjects: s?.subjects || [],
     versions: [...(s?.versions || [])].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom)),
     homework: (s?.homework || []).map((h) => ({ ...h, photos: h.photos || [] })),
@@ -69,25 +73,33 @@ export function createDiary(state) {
     return res;
   }
 
+  const approved = state.homework.filter((h) => h.status !== 'pending');
+  const pending = state.homework.filter((h) => h.status === 'pending');
+  const atLesson = (date, idx, subjectId) => (h) => h.fromDate === date && h.fromIdx === idx && h.subjectId === subjectId;
+
   // ДЗ, которое нужно сделать к уроку (date, idx)
   function dueFor(date, idx, subjectId) {
     if (!subjectId) return [];
     const first = lessonsFor(date).find((l) => l.subjectId === subjectId);
     if (!first || first.idx !== idx) return []; // при сдвоенных уроках ДЗ показываем на первом
-    return state.homework
+    return approved
       .filter((h) => h.subjectId === subjectId && h.fromDate < date)
       .filter((h) => nextLesson(h.subjectId, h.fromDate)?.date === date)
       .sort((a, b) => a.createdAt - b.createdAt);
   }
 
   // ДЗ, заданное на уроке (date, idx)
-  const givenAt = (date, idx, subjectId) =>
-    state.homework.find((h) => h.fromDate === date && h.fromIdx === idx && h.subjectId === subjectId);
+  const givenAt = (date, idx, subjectId) => approved.find(atLesson(date, idx, subjectId));
+
+  // Запросы учеников на ДЗ с урока (ученик получает с сервера только свои)
+  const requestsAt = (date, idx, subjectId) => pending.filter(atLesson(date, idx, subjectId));
+  const myRequestAt = (date, idx, subjectId) =>
+    pending.find((h) => atLesson(date, idx, subjectId)(h) && h.createdBy === state.me?.id);
 
   const hasOpenHomework = (date) =>
     lessonsFor(date).some((l) => dueFor(date, l.idx, l.subjectId).some((h) => !h.done));
 
-  return { subject, versionFor, lessonsFor, nextLesson, dueFor, givenAt, hasOpenHomework };
+  return { subject, versionFor, lessonsFor, nextLesson, dueFor, givenAt, requestsAt, myRequestAt, pending, hasOpenHomework };
 }
 
 // С какой даты начнёт действовать расписание, сохранённое прямо сейчас

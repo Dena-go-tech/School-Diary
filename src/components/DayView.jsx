@@ -3,7 +3,10 @@ import { WD_FULL, WD_SHORT, addDays, fmtLong, parse, weekday } from '../lib/date
 
 const SWIPE_MIN = 60;
 
-export default function DayView({ diary, hasSchedule, viewDate, today, now, onSelectDate, onShift, onOpenLesson, onOpenSchedule }) {
+export default function DayView({
+  me, diary, hasSchedule, viewDate, today, now, onSelectDate, onShift, onOpenLesson, onOpenSchedule, onOpenRequests, onOpenAccount,
+}) {
+  const isAdmin = me.role === 'admin';
   const wd = weekday(viewDate);
   const monday = addDays(viewDate, 1 - wd);
   const week = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
@@ -60,8 +63,12 @@ export default function DayView({ diary, hasSchedule, viewDate, today, now, onSe
           <div className="empty">
             <div className="big">🗓</div>
             Расписание ещё не заполнено
-            <br /><br />
-            <button className="btn primary" onClick={onOpenSchedule}>Составить расписание</button>
+            {isAdmin && (
+              <>
+                <br /><br />
+                <button className="btn primary" onClick={onOpenSchedule}>Составить расписание</button>
+              </>
+            )}
           </div>
         ) : !lessons.length ? (
           <div className="empty">
@@ -77,20 +84,40 @@ export default function DayView({ diary, hasSchedule, viewDate, today, now, onSe
               date={viewDate}
               today={today}
               now={now}
+              isAdmin={isAdmin}
               onOpen={() => onOpenLesson(l.idx)}
             />
           ))
         )}
       </main>
 
-      <button className="fab" onClick={onOpenSchedule}>
-        <span aria-hidden>🗓</span> Расписание
-      </button>
+      <nav className="fab-bar">
+        {isAdmin && diary.pending.length > 0 && (
+          <button onClick={onOpenRequests} aria-label="Запросы на ДЗ">
+            📥 <span className="count-badge">{diary.pending.length}</span>
+          </button>
+        )}
+        {isAdmin && (
+          <button onClick={onOpenSchedule}>
+            <span aria-hidden>🗓</span> Расписание
+          </button>
+        )}
+        {me.isGuest ? (
+          <button onClick={onOpenAccount}>
+            <span aria-hidden>🔑</span> Войти
+          </button>
+        ) : (
+          <button onClick={onOpenAccount} aria-label="Профиль">
+            <span className="avatar sm">{me.name.slice(0, 1).toUpperCase()}</span>
+            {!isAdmin && <span>{me.name}</span>}
+          </button>
+        )}
+      </nav>
     </div>
   );
 }
 
-function LessonCard({ lesson: l, diary, date, today, now, onOpen }) {
+function LessonCard({ lesson: l, diary, date, today, now, isAdmin, onOpen }) {
   const s = diary.subject(l.subjectId);
 
   if (!s) {
@@ -106,6 +133,7 @@ function LessonCard({ lesson: l, diary, date, today, now, onOpen }) {
   const isPast = date < today || (date === today && l.end && l.end <= now);
   const due = diary.dueFor(date, l.idx, l.subjectId);
   const given = diary.givenAt(date, l.idx, l.subjectId);
+  const requests = diary.requestsAt(date, l.idx, l.subjectId);
 
   return (
     <button className={'lesson' + (isNow ? ' now' : isPast ? ' past' : '')} onClick={onOpen}>
@@ -128,6 +156,11 @@ function LessonCard({ lesson: l, diary, date, today, now, onOpen }) {
           <div className="hw-none">ДЗ нет</div>
         )}
         {given && <div className="given">✓ Задано на следующий урок</div>}
+        {requests.length > 0 && (
+          <div className="pending-note">
+            {isAdmin ? `📥 Запросы на ДЗ: ${requests.length}` : '⏳ Ваш запрос на ДЗ на проверке'}
+          </div>
+        )}
       </div>
       <div className="chev" aria-hidden>›</div>
     </button>

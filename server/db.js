@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 // DATE возвращаем строкой 'YYYY-MM-DD', а не объектом Date (иначе сдвиг из-за часового пояса)
@@ -8,75 +11,69 @@ export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://diary:diary@localhost:5432/diary',
 });
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS subjects (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  color      TEXT NOT NULL,
-  position   INTEGER NOT NULL DEFAULT 0,
-  deleted    BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
+const MIGRATION_LOCK = 727_001; // pg_advisory_lock: две копии сервера не применят миграции одновременно
 
--- Версия расписания действует с effective_from до следующей версии
-CREATE TABLE IF NOT EXISTS schedule_versions (
-  effective_from DATE PRIMARY KEY,
-  bells          JSONB NOT NULL,  -- [{ "start": "08:00", "end": "08:45" }, ...]
-  days           JSONB NOT NULL,  -- { "1": ["subjectId" | null, ...], ..., "7": [...] }
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+export async function transaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
 
--- ДЗ, заданное на уроке (from_date, from_idx); урок, к которому оно, вычисляется по расписанию
-CREATE TABLE IF NOT EXISTS homework (
-  id         TEXT PRIMARY KEY,
-  subject_id TEXT NOT NULL REFERENCES subjects(id),
-  from_date  DATE NOT NULL,
-  from_idx   INTEGER NOT NULL,
-  text       TEXT NOT NULL,
-  done       BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at BIGINT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS homework_subject_idx ON homework (subject_id, from_date);
-
--- Фото к ДЗ (уже сжатые на клиенте); удаляются вместе с ДЗ
-CREATE TABLE IF NOT EXISTS homework_photos (
-  id          TEXT PRIMARY KEY,
-  homework_id TEXT NOT NULL REFERENCES homework(id) ON DELETE CASCADE,
-  mime        TEXT NOT NULL,
-  data        BYTEA NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS homework_photos_hw_idx ON homework_photos (homework_id, created_at);
--- Порядок фото внутри ДЗ (колонка добавлена позже — для существующих баз)
-ALTER TABLE homework_photos ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0;
-`;
-
-const DEFAULT_SUBJECTS = [
-  ['Русский язык', '#e5484d'], ['Литература', '#d6409f'], ['Математика', '#4f7cff'],
-  ['Алгебра', '#3e63dd'], ['Геометрия', '#0091ff'], ['Английский язык', '#8e4ec6'],
-  ['История', '#ad7f58'], ['Обществознание', '#978365'], ['География', '#12a594'],
-  ['Биология', '#30a46c'], ['Физика', '#0d74ce'], ['Химия', '#f76b15'],
-  ['Информатика', '#5b5bd6'], ['Физкультура', '#46a758'], ['Музыка', '#e93d82'],
-  ['ИЗО', '#ffb224'], ['Технология', '#6e6e6e'], ['ОБЖ', '#c2410c'],
-];
-
-export async function migrate(retries = 20) {
+async function waitForDb(retries) {
   for (let i = 1; ; i++) {
     try {
       await pool.query('SELECT 1');
-      break;
+      return;
     } catch (e) {
       if (i >= retries) throw e;
       console.log(`Жду базу данных… (${e.code || e.message})`);
       await new Promise((r) => setTimeout(r, 1500));
     }
   }
+}
 
-  await pool.query(SCHEMA);
-  const { rows } = await pool.query('SELECT count(*)::int AS n FROM subjects');
-  if (rows[0].n === 0) {
-    const values = DEFAULT_SUBJECTS.map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`).join(',');
-    const params = DEFAULT_SUBJECTS.flatMap(([name, color], i) => ['s' + i, name, color, i]);
-    await pool.query(`INSERT INTO subjects (id, name, color, position) VALUES ${values}`, params);
+// Применяет по порядку файлы server/migrations/NNN_*.sql, которых ещё нет в schema_migrations.
+// Каждая миграция — в своей транзакции: при ошибке база остаётся в прежнем состоянии.
+export async function migrate({ retries = 20, log = console.log } = {}) {
+  await waitForDb(retries);
+  const client = await pool.connect();
+  try {
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK]);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        name       TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`);
+    const { rows } = await client.query('SELECT name FROM schema_migrations');
+    const applied = new Set(rows.map((r) => r.name));
+    const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => /^\d+_.+\.sql$/.test(f)).sort();
+
+    for (const file of files) {
+      if (applied.has(file)) continue;
+      const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+      try {
+        await client.query('BEGIN');
+        await client.query(sql);
+        await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
+        await client.query('COMMIT');
+        log(`Миграция применена: ${file}`);
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw new Error(`Миграция ${file} не применилась: ${e.message}`);
+      }
+    }
+  } finally {
+    await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK]).catch(() => {});
+    client.release();
   }
 }

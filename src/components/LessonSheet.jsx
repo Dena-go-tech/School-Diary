@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Modal from './Modal.jsx';
 import PhotoViewer from './PhotoViewer.jsx';
+import RequestCard from './RequestCard.jsx';
 import SortablePhotos from './SortablePhotos.jsx';
 import { fmtShort } from '../lib/dates.js';
 import { uid } from '../lib/diary.js';
@@ -8,18 +9,39 @@ import { compressImage } from '../lib/images.js';
 import { photoUrl } from '../lib/useDiary.js';
 
 const MAX_PHOTOS = 10;
+const GUEST_NAME_KEY = 'diary-guest-name';
+const DEFAULT_GUEST_NAME = 'Гость';
 
-export default function LessonSheet({ diary, date, idx, actions, toast, onClose }) {
+function savedGuestName(me) {
+  if (me.name && me.name !== DEFAULT_GUEST_NAME) return me.name;
+  try {
+    return localStorage.getItem(GUEST_NAME_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export default function LessonSheet({ me, diary, date, idx, actions, toast, onClose }) {
+  const isAdmin = me.role === 'admin';
   const lesson = diary.lessonsFor(date)[idx];
   const s = diary.subject(lesson.subjectId);
   const due = diary.dueFor(date, idx, lesson.subjectId);
-  const given = diary.givenAt(date, idx, lesson.subjectId);
+  const given = diary.givenAt(date, idx, lesson.subjectId); // ДЗ, заданное на этом уроке
+  const requests = isAdmin ? diary.requestsAt(date, idx, lesson.subjectId) : [];
   const next = diary.nextLesson(lesson.subjectId, date);
+  // Что редактируем: админ — само ДЗ урока, ученик — свой запрос на ДЗ
+  const target = isAdmin ? given : diary.myRequestAt(date, idx, lesson.subjectId);
 
-  const [text, setText] = useState(given?.text || '');
+  const [text, setText] = useState(target?.text || '');
+  // Гость подписывает запрос именем, чтобы администратор понимал, от кого он
+  const [guestName, setGuestName] = useState(() => (me.isGuest ? savedGuestName(me) : ''));
   // Фото в нужном порядке: уже загруженные { key, id, url } и новые { key, id, url, blob }
-  const [photos, setPhotos] = useState(() => (given?.photos || []).map((id) => ({ key: id, id, url: photoUrl(id) })));
+  const [photos, setPhotos] = useState(() => (target?.photos || []).map((id) => ({ key: id, id, url: photoUrl(id) })));
   const [removed, setRemoved] = useState([]); // загруженные фото, которые удалятся при сохранении
+  const [dirty, setDirty] = useState(false); // были ли правки в редакторе
+  // ДЗ, которое было под редактором при открытии. Если оно сменилось (админ принял запрос
+  // прямо в этом окне), старые поля редактора не должны перезаписать или удалить новое ДЗ
+  const [initialTargetId] = useState(target?.id);
   const [processing, setProcessing] = useState(0);
   const [saving, setSaving] = useState(false);
   const [viewer, setViewer] = useState(null); // { urls, start }
@@ -38,6 +60,7 @@ export default function LessonSheet({ diary, date, idx, actions, toast, onClose 
   savingRef.current = saving;
 
   function removePhoto(i) {
+    setDirty(true);
     const p = photos[i];
     if (p.blob) URL.revokeObjectURL(p.url);
     else setRemoved((r) => [...r, p.id]);
@@ -45,6 +68,7 @@ export default function LessonSheet({ diary, date, idx, actions, toast, onClose 
   }
 
   function movePhoto(from, to) {
+    setDirty(true);
     setPhotos((list) => {
       const next = [...list];
       const [x] = next.splice(from, 1);
@@ -56,6 +80,7 @@ export default function LessonSheet({ diary, date, idx, actions, toast, onClose 
   async function addFiles(list) {
     const files = list.slice(0, MAX_PHOTOS - photoCountRef.current);
     if (list.length > files.length) toast(`Можно прикрепить не больше ${MAX_PHOTOS} фото`);
+    if (files.length) setDirty(true);
     photoCountRef.current += files.length;
     setProcessing((n) => n + files.length);
     for (const file of files) {
@@ -94,23 +119,35 @@ export default function LessonSheet({ diary, date, idx, actions, toast, onClose 
   });
 
   async function save() {
+    if (!dirty) return onClose();
+    if (target?.id !== initialTargetId) {
+      toast('ДЗ к этому уроку изменилось — откройте урок заново');
+      return onClose();
+    }
     const t = text.trim();
     if (!t && photoCount === 0) {
-      if (given) actions.deleteHomework(given.id);
+      if (target) actions.deleteHomework(target.id);
       onClose();
       return;
     }
+    const authorName = me.isGuest ? guestName.trim() : undefined;
+    if (me.isGuest && !authorName) return toast('Укажите, как вас зовут — это увидит администратор');
+    if (me.isGuest) {
+      try {
+        localStorage.setItem(GUEST_NAME_KEY, authorName);
+      } catch { /* недоступно */ }
+    }
 
     setSaving(true);
-    let hwId = given?.id;
-    if (!given) {
+    let hwId = target?.id;
+    if (!target) {
       hwId = uid('h');
       const ok = await actions.addHomework({
-        id: hwId, subjectId: lesson.subjectId, fromDate: date, fromIdx: idx, text: t, done: false, createdAt: Date.now(), photos: [],
+        id: hwId, subjectId: lesson.subjectId, fromDate: date, fromIdx: idx, text: t, createdAt: Date.now(), authorName,
       });
       if (!ok) return setSaving(false);
-    } else if (given.text !== t || pending.length) {
-      actions.updateHomework(given.id, { text: t, done: false });
+    } else if (target.text !== t || (authorName && authorName !== target.authorName)) {
+      actions.updateHomework(target.id, { text: t, authorName });
     }
 
     removed.forEach((id) => actions.deletePhoto(hwId, id));
@@ -124,20 +161,34 @@ export default function LessonSheet({ diary, date, idx, actions, toast, onClose 
     // На сервере сейчас: прежние фото в старом порядке + новые в конце. Если на экране иначе — сохраняем порядок
     const order = photos.filter((p) => !p.blob || uploaded.has(p.id)).map((p) => p.id);
     const serverOrder = [
-      ...(given?.photos || []).filter((id) => !removed.includes(id)),
+      ...(target?.photos || []).filter((id) => !removed.includes(id)),
       ...pending.filter((p) => uploaded.has(p.id)).map((p) => p.id),
     ];
     if (order.join() !== serverOrder.join()) actions.reorderPhotos(hwId, order);
 
-    if (!failed) toast(next ? `ДЗ добавлено к уроку ${fmtShort(next.date)}` : 'ДЗ сохранено');
+    if (!failed) {
+      if (!isAdmin) toast('Запрос отправлен — ДЗ появится после проверки');
+      else toast(next ? `ДЗ добавлено к уроку ${fmtShort(next.date)}` : 'ДЗ сохранено');
+    }
     onClose();
   }
 
   function remove() {
-    if (!confirm('Удалить заданное ДЗ вместе с фото?')) return;
-    actions.deleteHomework(given.id);
+    if (!confirm(isAdmin ? 'Удалить заданное ДЗ вместе с фото?' : 'Отозвать запрос?')) return;
+    actions.deleteHomework(target.id);
     onClose();
   }
+
+  const openPhotos = (urls, start) => setViewer({ urls, start });
+  const photoThumbs = (h) => h.photos.length > 0 && (
+    <div className="thumbs">
+      {h.photos.map((id, i) => (
+        <button key={id} className="thumb" onClick={() => openPhotos(h.photos.map(photoUrl), i)}>
+          <img src={photoUrl(id)} alt="" loading="lazy" />
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <Modal
@@ -146,9 +197,10 @@ export default function LessonSheet({ diary, date, idx, actions, toast, onClose 
       onClose={() => !saving && onClose()}
       footer={
         <>
-          {given && <button className="btn danger" onClick={remove} disabled={saving}>Удалить</button>}
+          {target && <button className="btn danger" onClick={remove} disabled={saving}>{isAdmin ? 'Удалить' : 'Отозвать'}</button>}
           <button className="btn primary grow" onClick={save} disabled={saving || processing > 0}>
-            {saving ? (pending.length ? 'Загружаю фото…' : 'Сохраняю…') : 'Сохранить'}
+            {saving ? (pending.length ? 'Загружаю фото…' : 'Сохраняю…')
+              : isAdmin ? 'Сохранить' : target ? 'Обновить запрос' : 'Отправить на проверку'}
           </button>
         </>
       }
@@ -162,35 +214,63 @@ export default function LessonSheet({ diary, date, idx, actions, toast, onClose 
               type="checkbox"
               checked={h.done}
               aria-label="Выполнено"
-              onChange={(e) => actions.updateHomework(h.id, { done: e.target.checked })}
+              onChange={(e) => actions.setDone(h.id, e.target.checked)}
             />
             <div className="grow">
               {h.text && <div className="t">{h.text}</div>}
-              {h.photos.length > 0 && (
-                <div className="thumbs">
-                  {h.photos.map((id, i) => (
-                    <button key={id} className="thumb" onClick={() => setViewer({ urls: h.photos.map(photoUrl), start: i })}>
-                      <img src={photoUrl(id)} alt="" loading="lazy" />
-                    </button>
-                  ))}
-                </div>
-              )}
+              {photoThumbs(h)}
               <div className="from">задано {fmtShort(h.fromDate)}</div>
             </div>
           </div>
         ))}
       </div>
 
-      <h3>Задать ДЗ</h3>
+      {requests.length > 0 && (
+        <>
+          <h3>Запросы учеников <span className="count-badge">{requests.length}</span></h3>
+          <div className="hw-list">
+            {requests.map((r) => (
+              <RequestCard key={r.id} hw={r} diary={diary} actions={actions} toast={toast} hasOfficial={!!given} onPhotos={openPhotos} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {!isAdmin && given && (
+        <>
+          <h3>Задано к следующему уроку</h3>
+          <div className="hw-item readonly">
+            <div className="grow">
+              {given.text && <div className="t">{given.text}</div>}
+              {photoThumbs(given)}
+            </div>
+          </div>
+        </>
+      )}
+
+      <h3>
+        {isAdmin ? 'Задать ДЗ' : target ? 'Ваш запрос' : given ? 'Предложить дополнение' : 'Предложить ДЗ'}
+        {!isAdmin && target && <span className="status-pill">на проверке</span>}
+      </h3>
       <div className="muted small hint-line">
+        {!isAdmin && 'Администратор проверит запрос и добавит ДЗ. '}
         {next
-          ? `→ подставится к уроку ${fmtShort(next.date)}, ${next.idx + 1}-й урок`
+          ? `→ к уроку ${fmtShort(next.date)}, ${next.idx + 1}-й урок`
           : 'Следующий урок этого предмета в расписании не найден — ДЗ сохранится, но не будет показано на уроке'}
       </div>
+      {me.isGuest && (
+        <input
+          className="guest-name"
+          value={guestName}
+          maxLength={60}
+          placeholder="Ваше имя (увидит администратор)"
+          onChange={(e) => { setGuestName(e.target.value); setDirty(true); }}
+        />
+      )}
       <textarea
         rows={3}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => { setText(e.target.value); setDirty(true); }}
         onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && save()}
         placeholder="Например: упр. 125, выучить правило на с. 40"
       />

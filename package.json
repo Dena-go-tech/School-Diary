@@ -1,6 +1,6 @@
 {
   "name": "school-diary",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "description": "Дневник: расписание по датам и домашние задания",
@@ -8,7 +8,10 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "db": "docker compose up -d db"
+    "db": "docker compose up -d db",
+    "migrate": "node server/scripts/migrate.js",
+    "createsuperuser": "node server/scripts/create-user.js --role admin",
+    "create-user": "node server/scripts/create-user.js"
   },
   "dependencies": {
     "express": "^5.2.1",

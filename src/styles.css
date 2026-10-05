@@ -126,12 +126,17 @@ input, textarea, select { font-size: 16px; }
 .small-empty { padding: 20px 16px; font-size: 14px; }
 .loading { text-align: center; padding: 30vh 16px 0; color: var(--muted); }
 
-.fab {
+/* Нижняя панель: запросы, расписание (админ), профиль */
+.fab-bar {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + var(--safe-bottom)); z-index: 6;
-  border: none; background: var(--text); color: var(--bg); border-radius: 999px; padding: 14px 22px;
-  font-weight: 700; cursor: pointer; box-shadow: 0 6px 24px rgba(0,0,0,.25); display: flex; gap: 8px; align-items: center;
+  display: flex; gap: 2px; padding: 4px; background: var(--text); border-radius: 999px; box-shadow: 0 6px 24px rgba(0,0,0,.25);
+  max-width: calc(100vw - 24px);
 }
-.fab:active { transform: translateX(-50%) scale(.97); }
+.fab-bar button {
+  border: none; background: transparent; color: var(--bg); border-radius: 999px; padding: 10px 16px; min-height: 44px;
+  font-weight: 700; cursor: pointer; display: flex; gap: 8px; align-items: center; white-space: nowrap;
+}
+.fab-bar button:active { background: rgba(127, 127, 127, .25); }
 
 /* ---------- Диалоги ---------- */
 .backdrop {
@@ -324,3 +329,54 @@ input, textarea, select { font-size: 16px; }
   background: rgba(0, 0, 0, .6); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center;
 }
 .thumbs.editor + .hint-line { margin-top: 8px; }
+
+/* ---------- Вход и роли ---------- */
+.login-screen { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px calc(24px + var(--safe-bottom)); }
+.login-card {
+  width: min(380px, 100%); background: var(--card); border-radius: 20px; padding: 28px 22px; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 14px;
+}
+.login-card h1 { margin: 0 0 6px; text-align: center; font-size: 24px; }
+.login-logo { width: 64px; height: 64px; align-self: center; border-radius: 16px; }
+.login-card label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.login-card input {
+  width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 12px; padding: 12px; color: var(--text);
+}
+.login-card input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.login-card .btn.block { margin-top: 4px; }
+.login-hint { text-align: center; }
+
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700;
+  display: grid; place-items: center; flex: none; font-size: 15px;
+}
+.avatar.sm { width: 26px; height: 26px; font-size: 13px; }
+.block-line { display: block; font-weight: 400; }
+.menu-list { display: flex; flex-direction: column; background: var(--bg); border-radius: 14px; overflow: hidden; margin-top: 8px; }
+.stack { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.segmented.two { grid-template-columns: repeat(2, 1fr); margin-bottom: 4px; }
+
+.count-badge {
+  display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+  background: var(--danger); color: #fff; font-size: 12px; font-weight: 700; vertical-align: 1px;
+}
+.status-pill {
+  margin-left: 8px; font-size: 12px; font-weight: 600; background: #fff3d6; color: #8a5a00; border-radius: 6px; padding: 2px 8px; vertical-align: 2px;
+}
+@media (prefers-color-scheme: dark) { .status-pill { background: #3d3214; color: #ffcf6b; } }
+.lesson .pending-note { margin-top: 4px; font-size: 12px; font-weight: 600; color: #b7791f; }
+
+.request-card {
+  background: var(--bg); border-radius: 12px; padding: 12px; border-left: 5px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.request-card .t { white-space: pre-wrap; overflow-wrap: anywhere; }
+.request-card .thumbs { margin-top: 2px; }
+.request-card .thumb { width: 64px; height: 64px; }
+.request-lesson { font-size: 14px; }
+.request-actions { display: flex; gap: 8px; margin-top: 4px; }
+.hw-item.readonly .t { white-space: pre-wrap; overflow-wrap: anywhere; }
+.login-screen.overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg); overflow-y: auto; animation: fade .15s; }
+.login-card { position: relative; }
+.login-close { position: absolute; top: 8px; right: 8px; }
+.guest-name { margin-bottom: 8px; }
