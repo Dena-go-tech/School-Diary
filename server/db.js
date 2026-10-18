@@ -1,17 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 // DATE возвращаем строкой 'YYYY-MM-DD', а не объектом Date (иначе сдвиг из-за часового пояса)
 pg.types.setTypeParser(pg.types.builtins.DATE, (v) => v);
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
 
-export const pool = new pg.Pool({
+// Один пул на процесс: в dev Next перезагружает модули при каждой правке
+export const pool = (globalThis.diaryPool ??= new pg.Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://diary:diary@localhost:5432/diary',
-});
+}));
 
-const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
+// Путь от корня проекта: после сборки Next этот модуль лежит в .next/, а не рядом с migrations/
+const MIGRATIONS_DIR = path.join(process.cwd(), 'server', 'migrations');
 const MIGRATION_LOCK = 727_001; // pg_advisory_lock: две копии сервера не применят миграции одновременно
 
 export async function transaction(fn) {

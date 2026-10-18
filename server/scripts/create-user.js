@@ -9,7 +9,7 @@
 import readline from 'node:readline';
 import { parseArgs } from 'node:util';
 import { pool, migrate } from '../db.js';
-import { createUser, MIN_PASSWORD, ROLES } from '../auth.js';
+import { createUser, MIN_PASSWORD, ROLES } from '../users.js';
 
 const { values: args } = parseArgs({
   options: {

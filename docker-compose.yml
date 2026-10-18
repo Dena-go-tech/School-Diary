@@ -22,6 +22,9 @@ services:
       - .env
     ports:
       - "443:3000"
+    volumes:
+      # Сканы страниц книг: ./books/<книга>/pages/0001.webp … (см. README)
+      - ./books:/app/books:ro
     healthcheck:
       test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/state >/dev/null || exit 1" ]
       interval: 30s

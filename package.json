@@ -5,22 +5,22 @@
   "type": "module",
   "description": "Дневник: расписание по датам и домашние задания",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "start": "node server/index.js",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "db": "docker compose up -d db",
     "migrate": "node server/scripts/migrate.js",
     "createsuperuser": "node server/scripts/create-user.js --role admin",
     "create-user": "node server/scripts/create-user.js"
   },
   "dependencies": {
-    "express": "^5.2.1",
-    "pg": "^8.23.1"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^6.1.2",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "vite": "^8.3.2"
+    "katex": "0.16.25",
+    "next": "16.3.8",
+    "pg": "8.23.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
+    "remark-math": "6.0.0"
   }
 }
