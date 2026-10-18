@@ -1,3 +1,5 @@
+'use client';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createDiary } from './lib/diary.js';
 import { addDays, nowHM, todayStr } from './lib/dates.js';
@@ -10,6 +12,8 @@ import RequestsSheet from './components/RequestsSheet.jsx';
 import ScheduleEditor from './components/ScheduleEditor.jsx';
 import UsersSheet from './components/UsersSheet.jsx';
 import Toast, { useToast } from './components/Toast.jsx';
+
+const REFRESH_MS = 30_000;
 
 export default function App() {
   const [toastMsg, toast] = useToast();
@@ -47,6 +51,12 @@ export default function App() {
     const onVisible = () => document.visibilityState === 'visible' && reload();
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [reload]);
+
+  // Пока сайт открыт на экране — обновляем данные, чтобы новые запросы и ДЗ появлялись без перезагрузки
+  useEffect(() => {
+    const t = setInterval(() => document.visibilityState === 'visible' && reload(), REFRESH_MS);
+    return () => clearInterval(t);
   }, [reload]);
 
   // Сменился пользователь (вход, выход, истекла сессия) — закрываем окна, доступные не всем

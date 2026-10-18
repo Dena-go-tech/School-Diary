@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { useRef } from 'react';
 import { WD_FULL, WD_SHORT, addDays, fmtLong, parse, weekday } from '../lib/dates.js';
 
@@ -92,6 +93,9 @@ export default function DayView({
       </main>
 
       <nav className="fab-bar">
+        <Link href="/books" aria-label="Книги">
+          <span aria-hidden>📚</span>{!isAdmin && ' Книги'}
+        </Link>
         {isAdmin && diary.pending.length > 0 && (
           <button onClick={onOpenRequests} aria-label="Запросы на ДЗ">
             📥 <span className="count-badge">{diary.pending.length}</span>
